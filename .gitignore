@@ -1,2 +1,4 @@
 .venv
 *secret*
+flask_session
+__pycache__

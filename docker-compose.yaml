@@ -1,15 +1,23 @@
 version: '3'
 
 services:
-  db:
+  mysql:
     image: mysql:latest
-    # environment:
-    #   MYSQL_ROOT_PASSWORD: root
-    #   MYSQL_DATABASE: image_processor
-    #   MYSQL_USER: root
+    environment:
+      MYSQL_DATABASE: db
+      MYSQL_USER: user
+    env_file:
+      - secrets.env
 
 
   image_processor:
     build: ./image_processor
     ports:
       - "5000:5000"
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_USER: user
+    env_file:
+      - secrets.env
+    depends_on:
+      - mysql

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Image Upload</title>
+</head>
+<body>
+    <video id="video" width="640" height="480" autoplay></video>
+    <canvas id="canvas" width="640" height="480" style="display:none;"></canvas>
+    <canvas id="overlay" width="640" height="480" style="position:absolute; top:0; left:0;"></canvas>
+    <img id="finalImage" src="" alt="Final Image" style="display:none;"/>
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const overlay = document.getElementById('overlay');
+        const finalImage = document.getElementById('finalImage');
+        const context = canvas.getContext('2d');
+        const overlayContext = overlay.getContext('2d');
+        let finished = false;
+
+        // Get access to the camera
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({ video: true }).then(function(stream) {
+                video.srcObject = stream;
+                video.play();
+            });
+        }
+
+        function setSessionCookie(name, value, days) {
+            let expires = "";
+            if (days) {
+                const date = new Date();
+                date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+                expires = "; expires=" + date.toUTCString();
+            }
+            document.cookie = name + "=" + (value || "") + expires + "; path=/";
+        }
+
+        function getSessionCookie(name) {
+            const nameEQ = name + "=";
+            const ca = document.cookie.split(';');
+            for (let i = 0; i < ca.length; i++) {
+                let c = ca[i];
+                while (c.charAt(0) == ' ') c = c.substring(1, c.length);
+                if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length, c.length);
+            }
+            return null;
+        }
+
+        function sendImage(imageData, compress = true) {
+            const xhr = new XMLHttpRequest();
+            const url = compress ? 'http://localhost:5000/scan/add' : 'http://localhost:5000/scan/confirm';
+            xhr.open('POST', url, true);
+            xhr.responseType = 'json';
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    const response = xhr.response;
+                    if (response.finished) {
+                        finished = true;
+                        sendImage(imageData, false);
+                    } else if (response.transformed_image) {
+                        const transformedImageSrc = 'data:image/jpeg;base64,' + response.transformed_image;
+                        finalImage.src = transformedImageSrc;
+                        finalImage.style.display = 'block';
+                        drawCorners(response.corners);
+                    }
+                }
+            };
+            const formData = new FormData();
+            formData.append('image', imageData, 'image.jpg');
+            xhr.withCredentials = true; // Ensure cookies are sent with the request
+            xhr.send(formData);
+        }
+
+        function captureAndSendImage() {
+            context.drawImage(video, 0, 0, 640, 480);
+            canvas.toBlob(function(blob) {
+                sendImage(blob);
+            }, 'image/jpeg', 0.5);
+        }
+
+        function drawCorners(corners) {
+            overlayContext.clearRect(0, 0, overlay.width, overlay.height);
+            overlayContext.fillStyle = 'red';
+            corners.forEach(corner => {
+                overlayContext.beginPath();
+                overlayContext.arc(corner[0], corner[1], 5, 0, 2 * Math.PI);
+                overlayContext.fill();
+            });
+        }
+
+        video.addEventListener('play', function() {
+            setInterval(function() {
+                if (!finished) {
+                    captureAndSendImage();
+                }
+                console.log(finished);
+            }, 100);
+        });
+    </script>
+</body>
+</html>
