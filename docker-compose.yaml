@@ -10,8 +10,8 @@ services:
       - secrets.env
 
 
-  server:
-    build: ./image_processor
+  backend:
+    build: ./backend
     ports:
       - "5000:5000"
     environment:
