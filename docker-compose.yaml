@@ -9,7 +9,6 @@ services:
     env_file:
       - secrets.env
 
-
   backend:
     build: ./backend
     ports:
