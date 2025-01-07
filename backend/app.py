@@ -26,6 +26,8 @@ CORS(app, supports_credentials=True)  # Enable CORS with credentials
 app.config["SESSION_PERMANENT"] = False
 app.config["SESSION_TYPE"] = "filesystem"
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+app.config['SESSION_COOKIE_SAMESITE'] = 'None'
+app.config['SESSION_COOKIE_SECURE'] = True
 Session(app)
 
 SIZE_THRESHOLD = 0.1
@@ -56,6 +58,7 @@ def add_scan():
         print(finished)
     
         return {
+            'test': session.get('consistent_count', 0),
             'finished': finished,
             'corners': corners.tolist(),
             'transformed_image': base64.b64encode(cv2.imencode('.jpg', transformed_image)[1].tobytes()).decode('utf-8')

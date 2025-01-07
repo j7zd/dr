@@ -10,7 +10,7 @@ services:
       - secrets.env
 
 
-  image_processor:
+  server:
     build: ./image_processor
     ports:
       - "5000:5000"
