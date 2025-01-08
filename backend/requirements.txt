@@ -5,3 +5,4 @@ Flask-Session
 numpy
 opencv-python
 flask-cors
+flask-sqlalchemy
