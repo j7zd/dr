@@ -7,6 +7,7 @@ import base64
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import BigInteger
 import random
+import requests
 
 # MySQL configuration
 MYSQL_HOST = os.environ.get('MYSQL_HOST', 'localhost')
@@ -52,6 +53,7 @@ class Session(db.Model):
     previous_size = db.Column(db.PickleType, nullable=False)
     status = db.Column(db.Enum('IN_PROGRESS', 'WAITING', 'DENIED', 'ACCEPTED', name='status_enum'), nullable=False)
     callback_url = db.Column(db.String(255), nullable=False)
+    requested_information = db.Column(db.String(255), nullable=True)
 
     front_corners = db.relationship('Corners', backref=db.backref('session', uselist=False), cascade='all, delete-orphan')
     back_corners = db.relationship('Corners', backref=db.backref('session', uselist=False), cascade='all, delete-orphan')
@@ -81,6 +83,16 @@ def verification_start():
 
     return {"session_id": session_id}, 201
 
+@app.route('/verification/cancel/<session_id>', methods=['DELETE'])
+def verification_cancel(session_id):
+    session = db.session.query(Session).filter_by(id=session_id).first()
+    if session is None:
+        return "Session not found", 404
+    db.session.delete(session)
+    db.session.commit()
+
+    return "Session deleted", 200
+
 @app.route('/scan/add/<session_id>', methods=['POST'])
 def add_scan(session_id):
     session = db.session.query(Session).filter_by(id=session_id).first()
@@ -95,6 +107,7 @@ def add_scan(session_id):
 
     corners, transformed_image = scan(image)
     # bellow is the logic that checks for a number of consistent frames. When the required number is reached the scan is successful
+    # should probably be moved to a separate function
     if transformed_image is not None:
         current_size = transformed_image.shape[:2]
         previous_size = session.previous_size
@@ -128,9 +141,21 @@ def add_scan(session_id):
         'finished': finished
     }
      
+@app.route('/scan/restart/<session_id>', methods=['POST'])
+def restart_scan(session_id): # the user can restart the scan if they accidentally scanned the wrong object
+    session = db.session.query(Session).filter_by(id=session_id).first()
+    if session is None:
+        return "Session not found", 404
+    if session.back_corners is None:
+        session.front_corners = None
+    else:
+        session.back_corners = None
+    session.consistent_count = 0
+    session.previous_size = None
+    db.session.commit()
 
+    return "Scan restarted", 200
 
-# Needs to be rewritten to receive 3 images!
 @app.route('/scan/confirm/<session_id>', methods=['POST'])
 def confirm_scan(session_id):
     session = db.session.query(Session).filter_by(id=session_id).first()
@@ -139,14 +164,13 @@ def confirm_scan(session_id):
     if session.consistent_count < CONSISTENT_FRAMES:
         return "Scan not finished", 400
     
+    # Extract the images from the request and decode them
     front_image = request.files['front_image']
     back_image = request.files['back_image']
     face_image = request.files['face_image']
-
     front_image_data = np.frombuffer(front_image.read(), np.uint8)
     back_image_data = np.frombuffer(back_image.read(), np.uint8)
     face_image_data = np.frombuffer(face_image.read(), np.uint8)
-
     front_image = cv2.imdecode(front_image_data, cv2.IMREAD_COLOR)
     back_image = cv2.imdecode(back_image_data, cv2.IMREAD_COLOR)
     face_image = cv2.imdecode(face_image_data, cv2.IMREAD_COLOR)
@@ -164,7 +188,11 @@ def confirm_scan(session_id):
     # temporary
     cv2.imwrite('front_scanned_id.jpg', front_transformed_image)
     cv2.imwrite('back_scanned_id.jpg', back_transformed_image)
+    cv2.imwrite('face.jpg', face_image)
     # Has to process the image.
+
+    callback_url = session.callback_url
+    response = requests.post(callback_url, json={'status': 'ACCEPTED'}) # to be changed
 
     return {
         'front_transformed_image': base64.b64encode(cv2.imencode('.jpg', front_transformed_image)[1].tobytes()).decode('utf-8'),
@@ -180,6 +208,10 @@ def check_status(session_id):
     return {
         'status': session.status
     }
+
+@app.route('/verification/request_review/<session_id>', methods=['POST'])
+def request_review():
+    pass
 
 @app.route('/admin/review', methods=['GET'])
 def review_list():
