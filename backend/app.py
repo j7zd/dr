@@ -206,7 +206,8 @@ def check_status(session_id):
         return "Session not found", 404
 
     return {
-        'status': session.status
+        'status': session.status,
+        'requested_information': session.requested_information
     }
 
 @app.route('/verification/request_review/<session_id>', methods=['POST'])
