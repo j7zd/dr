@@ -71,13 +71,14 @@ def verification_start():
     callback_url = request.json.get('callback_url')
     if not callback_url:
         return "Callback URL is required", 400
+    requested_information = request.json.get('requested_information')
 
     session_id = None
     while True:
         session_id = random.randint(1, 9_223_372_036_854_775_807) # the ids are random to prevent people from guessing someone else's session id
         if  db.session.query(Session).filter_by(id=session_id).first() is None:
             break
-    new_session = Session(id=session_id, callback_url=callback_url, consistent_count=0, previous_size=None, status='IN_PROGRESS')
+    new_session = Session(id=session_id, callback_url=callback_url, consistent_count=0, previous_size=None, status='IN_PROGRESS', requested_information=requested_information)
     db.session.add(new_session)
     db.session.commit()
 
