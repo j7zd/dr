@@ -7,3 +7,4 @@ opencv-python
 flask-cors
 flask-sqlalchemy
 requests
+cryptography

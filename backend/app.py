@@ -1,4 +1,4 @@
-from flask import Flask, request
+from flask import Flask, request, render_template
 import os
 from scanner import scan, transform_perspective
 import cv2
@@ -47,16 +47,16 @@ class Session(db.Model):
     __tablename__ = 'sessions'
 
     id = db.Column(BigInteger, primary_key=True, autoincrement=False)
-    front_corners_id = db.Column(db.Integer, db.ForeignKey('corners.id'), nullable=False)
+    front_corners_id = db.Column(db.Integer, db.ForeignKey('corners.id'), nullable=True)
     back_corners_id = db.Column(db.Integer, db.ForeignKey('corners.id'), nullable=True)
     consistent_count = db.Column(db.Integer, nullable=False)
-    previous_size = db.Column(db.PickleType, nullable=False)
+    previous_size = db.Column(db.PickleType, nullable=True)
     status = db.Column(db.Enum('IN_PROGRESS', 'WAITING', 'DENIED', 'ACCEPTED', name='status_enum'), nullable=False)
     callback_url = db.Column(db.String(255), nullable=False)
     requested_information = db.Column(db.String(255), nullable=True)
 
-    front_corners = db.relationship('Corners', backref=db.backref('session', uselist=False), cascade='all, delete-orphan')
-    back_corners = db.relationship('Corners', backref=db.backref('session', uselist=False), cascade='all, delete-orphan')
+    front_corners = db.relationship('Corners', foreign_keys=[front_corners_id], backref=db.backref('front_session', uselist=False), single_parent=True, cascade='all, delete-orphan')
+    back_corners = db.relationship('Corners', foreign_keys=[back_corners_id], backref=db.backref('back_session', uselist=False), single_parent=True, cascade='all, delete-orphan')
 
 with app.app_context():
     db.create_all()
@@ -65,7 +65,7 @@ with app.app_context():
 SIZE_THRESHOLD = 0.1
 CONSISTENT_FRAMES = 10
 
-@app.route('/verification/start', methods=['POST'])
+@app.route('/api/verification/start', methods=['POST'])
 def verification_start():
     # The callback URL is used to send the result of the verification process
     callback_url = request.json.get('callback_url')
@@ -84,7 +84,7 @@ def verification_start():
 
     return {"session_id": session_id}, 201
 
-@app.route('/verification/cancel/<session_id>', methods=['DELETE'])
+@app.route('/api/verification/cancel/<session_id>', methods=['DELETE'])
 def verification_cancel(session_id):
     session = db.session.query(Session).filter_by(id=session_id).first()
     if session is None:
@@ -94,7 +94,7 @@ def verification_cancel(session_id):
 
     return "Session deleted", 200
 
-@app.route('/scan/add/<session_id>', methods=['POST'])
+@app.route('/api/scan/add/<session_id>', methods=['POST'])
 def add_scan(session_id):
     session = db.session.query(Session).filter_by(id=session_id).first()
     if session is None:
@@ -142,7 +142,7 @@ def add_scan(session_id):
         'finished': finished
     }
      
-@app.route('/scan/restart/<session_id>', methods=['POST'])
+@app.route('/api/scan/restart/<session_id>', methods=['POST'])
 def restart_scan(session_id): # the user can restart the scan if they accidentally scanned the wrong object
     session = db.session.query(Session).filter_by(id=session_id).first()
     if session is None:
@@ -157,7 +157,7 @@ def restart_scan(session_id): # the user can restart the scan if they accidental
 
     return "Scan restarted", 200
 
-@app.route('/scan/confirm/<session_id>', methods=['POST'])
+@app.route('/api/scan/confirm/<session_id>', methods=['POST'])
 def confirm_scan(session_id):
     session = db.session.query(Session).filter_by(id=session_id).first()
     if session is None:
@@ -200,7 +200,7 @@ def confirm_scan(session_id):
         'back_transformed_image': base64.b64encode(cv2.imencode('.jpg', back_transformed_image)[1].tobytes()).decode('utf-8')
     }
 
-@app.route('/verification/check_status/<session_id>', methods=['GET'])
+@app.route('/api/verification/check_status/<session_id>', methods=['GET'])
 def check_status(session_id):
     session = db.session.query(Session).filter_by(id=session_id).first()
     if session is None:
@@ -211,17 +211,25 @@ def check_status(session_id):
         'requested_information': session.requested_information
     }
 
-@app.route('/verification/request_review/<session_id>', methods=['POST'])
+@app.route('/api/verification/request_review/<session_id>', methods=['POST'])
 def request_review():
     pass
 
-@app.route('/admin/review', methods=['GET'])
+@app.route('/api/admin/review', methods=['GET'])
 def review_list():
     pass
 
-@app.route('/admin/review/<session_id>', methods=['GET', 'POST'])
+@app.route('/api/admin/review/<session_id>', methods=['GET', 'POST'])
 def review(session_id):
     pass
+
+@app.route('/verify/<session_id>/start', methods=['GET'])
+def start_page(session_id):
+    return render_template('start.html', session_id=session_id)
+
+@app.route('/verify/<session_id>/scan', methods=['GET'])
+def scan_page(session_id):
+    return render_template('scan.html', session_id=session_id)
 
 if __name__ == '__main__':
     app.run('0.0.0.0', debug=True)
