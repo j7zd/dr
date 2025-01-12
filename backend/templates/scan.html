@@ -14,8 +14,19 @@
         video, canvas, img {
             display: none;
         }
+        #video, #canvas {
+            display: block;
+        }
+        #region {
+            position: absolute;
+            border: 2px solid red;
+            width: 300px;
+            height: 200px;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+        }
     </style>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
     <header>
@@ -25,19 +36,100 @@
         <div id="qrcode"></div>
         <video id="video" width="640" height="480" autoplay></video>
         <canvas id="canvas" width="640" height="480"></canvas>
+        <div id="region"></div>
         <img id="finalImage" src="" alt="Final Image"/>
+        <button id="startBtn">Start Scanning</button>
     </main>
-    
     <script>
-        function isMobile() {
-            return /Mobi|Android/i.test(navigator.userAgent);
+        const startBtn = document.getElementById('startBtn');
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const context = canvas.getContext('2d');
+        const region = document.getElementById('region');
+        const finalImage = document.getElementById('finalImage');
+
+        let scanning = false;
+        let isProcessing = false;
+
+        async function startVideo() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'environment'
+                    }
+                });
+                video.srcObject = stream;
+                video.play();
+            } catch (error) {
+                console.error('Error accessing camera:', error);
+            }
         }
 
-        if (isMobile()) {
-            // TODO
-        } else {
-            const qrcode = new QRCode("qrcode", window.location.href);
+        async function cropAndSend() {
+            if (isProcessing || !scanning) return;
+            isProcessing = true;
+
+            const regionRect = region.getBoundingClientRect();
+            const videoRect = video.getBoundingClientRect();
+
+            const scaleX = video.videoWidth / videoRect.width;
+            const scaleY = video.videoHeight / videoRect.height;
+
+            const sx = (regionRect.left - videoRect.left) * scaleX;
+            const sy = (regionRect.top - videoRect.top) * scaleY;
+            const sw = regionRect.width * scaleX;
+            const sh = regionRect.height * scaleY;
+
+            context.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+            const croppedImage = canvas.toDataURL('image/jpeg', 0.8); // Compress as JPEG
+
+            try {
+                const response = await fetch('/api/scan/add/{{ session_id }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        image: croppedImage
+                    })
+                });
+
+                const result = await response.json();
+                if (result.finished) {
+                    scanning = false;
+                    video.pause();
+                    finalImage.src = result.transformed_image;
+                    finalImage.style.display = 'block';
+                    showAcceptCancel();
+                }
+            } catch (error) {
+                console.error('Error sending image to server:', error);
+            } finally {
+                isProcessing = false;
+            }
         }
+
+        function showAcceptCancel() {
+            const accept = confirm('Accept the processed image?');
+            if (accept) {
+                alert('Image accepted!');
+            } else {
+                alert('Image rejected!');
+                finalImage.style.display = 'none';
+            }
+        }
+
+        startBtn.addEventListener('click', () => {
+            scanning = true;
+            startBtn.style.display = 'none';
+            startVideo();
+
+            setInterval(() => {
+                if (scanning) {
+                    cropAndSend();
+                }
+            }, 1000); // Capture every second
+        });
     </script>
 </body>
 </html>

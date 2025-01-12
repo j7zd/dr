@@ -101,9 +101,9 @@ def add_scan(session_id):
         return "Session not found", 404
     if session.consistent_count >= CONSISTENT_FRAMES:
         return "Scan already finished", 400
-    image = request.files['image']
-    image_data = np.frombuffer(image.read(), np.uint8)
-    image = cv2.imdecode(image_data, cv2.IMREAD_COLOR)
+    image = request.json['image']
+    image = base64.b64decode(image)
+    image = np.frombuffer(image, np.uint8)
     finished = False
 
     corners, transformed_image = scan(image)
