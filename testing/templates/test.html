@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera Access</title>
+    <script>
+        // Check if the browser supports getUserMedia
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            // Request access to the camera
+            navigator.mediaDevices.getUserMedia({ video: true })
+                .then(function(stream) {
+                    // Get the video element
+                    const video = document.querySelector('video');
+                    
+                    // Set the video element's source to the camera stream
+                    video.srcObject = stream;
+                    video.play();
+                })
+                .catch(function(error) {
+                    console.error("Error accessing the camera: ", error);
+                });
+        } else {
+            alert("Your browser does not support accessing the camera.");
+        }
+
+    </script>
+</head>
+<body>
+    <video autoplay playsinline style="width: 100%;"></video>
+    <script src="script.js"></script>
+</body>
+</html>

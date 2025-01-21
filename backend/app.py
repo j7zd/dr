@@ -8,6 +8,7 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import BigInteger
 import random
 import requests
+from processing import extract_picture_bg_2024, read_mrz_bg_2024
 
 # MySQL configuration
 MYSQL_HOST = os.environ.get('MYSQL_HOST', 'localhost')
@@ -187,8 +188,8 @@ def confirm_scan(session_id):
     back_transformed_image = transform_perspective(back_image, corners)
 
     # temporary
-    cv2.imwrite('front_scanned_id.jpg', front_transformed_image)
-    cv2.imwrite('back_scanned_id.jpg', back_transformed_image)
+    picture_card = extract_picture_bg_2024(front_transformed_image)
+    mrz_data = read_mrz_bg_2024(back_transformed_image)
     cv2.imwrite('face.jpg', face_image)
     # Has to process the image.
 
@@ -232,4 +233,4 @@ def scan_page(session_id):
     return render_template('scan.html', session_id=session_id)
 
 if __name__ == '__main__':
-    app.run('0.0.0.0', debug=True)
+    app.run('0.0.0.0', debug=True, ssl_context="adhoc")
