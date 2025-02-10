@@ -1,135 +1,289 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
+<html>
+  <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Scan ID</title>
+    <title>Document Scanning</title>
     <style>
-        body, header {
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-        }
-        video, canvas, img {
-            display: none;
-        }
-        #video, #canvas {
-            display: block;
-        }
-        #region {
-            position: absolute;
-            border: 2px solid red;
-            width: 300px;
-            height: 200px;
-            left: 50%;
-            top: 50%;
-            transform: translate(-50%, -50%);
-        }
+      body {
+        font-family: Arial, sans-serif;
+        margin: 1rem;
+        text-align: center;
+      }
+      #not-mobile-warning {
+        color: red;
+        margin-top: 2rem;
+      }
+      #scanning-interface {
+        display: none;
+        margin-top: 1rem;
+      }
+      video {
+        width: 100%;
+        max-width: 400px;
+        border: 1px solid #ccc;
+      }
+      canvas {
+        display: none;
+      }
+      img {
+        margin-top: 1rem;
+        max-width: 400px;
+        border: 1px solid #ccc;
+      }
+      #controls button {
+        font-size: 1rem;
+        padding: 0.5rem 1rem;
+        margin: 0.5rem;
+      }
+      #status-msg {
+        margin-top: 1rem;
+        font-weight: bold;
+      }
     </style>
-</head>
-<body>
-    <header>
-        <h1>ID Verification</h1>
-    </header>
-    <main>
-        <div id="qrcode"></div>
-        <video id="video" width="640" height="480" autoplay></video>
-        <canvas id="canvas" width="640" height="480"></canvas>
-        <div id="region"></div>
-        <img id="finalImage" src="" alt="Final Image"/>
-        <button id="startBtn">Start Scanning</button>
-    </main>
+  </head>
+  <body>
+    <!-- Warning to use mobile if not detected -->
+    <div id="not-mobile-warning" style="display:none;">
+      <p>Please open this page on a mobile device to use the camera.</p>
+    </div>
+
+    <!-- The scanning UI -->
+    <div id="scanning-interface">
+      <h2 id="step-title"></h2>
+      <video id="video" autoplay playsinline></video>
+      <canvas id="canvas"></canvas>
+      <div>
+        <!-- A preview image is shown when a scan has finished -->
+        <img id="preview" style="display:none;" alt="Scan Preview">
+      </div>
+      <div id="controls">
+        <!-- For selfie capture the "Capture" button is used. For document scanning, confirm/restart buttons are shown. -->
+        <button id="capture-btn" style="display:none;">Capture</button>
+        <button id="confirm-btn" style="display:none;">Confirm</button>
+        <button id="restart-btn" style="display:none;">Restart Scan</button>
+      </div>
+      <p id="status-msg"></p>
+    </div>
+
     <script>
-        const startBtn = document.getElementById('startBtn');
+      // The session id is passed from the Flask route.
+      const sessionId = "{{ session_id }}";
+      // currentStep can be: 'doc_front' (first document side), 'doc_back' (second document side), or 'face' (selfie)
+      let currentStep = 'doc_front';
+      let videoStream = null;
+      let autoCaptureInterval = null;
+      // Hold the captured images (dataURLs)
+      let capturedDocFront = null;
+      let capturedDocBack = null;
+      let capturedFace = null;
+
+      // Check if the device is mobile based on the user agent.
+      function isMobile() {
+        return /Mobi|Android/i.test(navigator.userAgent);
+      }
+
+      // Start the camera with a given facing mode.
+      async function startCamera(facingMode = 'environment') {
+        if (videoStream) {
+          videoStream.getTracks().forEach(track => track.stop());
+        }
+        try {
+          videoStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: facingMode }
+          });
+          document.getElementById('video').srcObject = videoStream;
+        } catch (err) {
+          console.error("Error accessing camera: ", err);
+          alert("Could not access camera.");
+        }
+      }
+
+      // Capture the current video frame to a canvas and return its data URL.
+      function captureFrame() {
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
         const context = canvas.getContext('2d');
-        const region = document.getElementById('region');
-        const finalImage = document.getElementById('finalImage');
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL('image/jpeg');
+      }
 
-        let scanning = false;
-        let isProcessing = false;
-
-        async function startVideo() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        facingMode: 'environment'
-                    }
-                });
-                video.srcObject = stream;
-                video.play();
-            } catch (error) {
-                console.error('Error accessing camera:', error);
-            }
+      // Send a captured image (as a base64 string) to the server’s /api/scan/add endpoint.
+      async function sendScanImage(imageDataUrl) {
+        // Remove the data URL prefix so we send only the base64 data.
+        const base64Data = imageDataUrl.split(',')[1];
+        try {
+          const response = await fetch(`/api/scan/add/${sessionId}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ image: base64Data })
+          });
+          return await response.json();
+        } catch (error) {
+          console.error("Error sending scan image: ", error);
         }
+      }
 
-        async function cropAndSend() {
-            if (isProcessing || !scanning) return;
-            isProcessing = true;
-
-            const regionRect = region.getBoundingClientRect();
-            const videoRect = video.getBoundingClientRect();
-
-            const scaleX = video.videoWidth / videoRect.width;
-            const scaleY = video.videoHeight / videoRect.height;
-
-            const sx = (regionRect.left - videoRect.left) * scaleX;
-            const sy = (regionRect.top - videoRect.top) * scaleY;
-            const sw = regionRect.width * scaleX;
-            const sh = regionRect.height * scaleY;
-
-            context.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-            const croppedImage = canvas.toDataURL('image/jpeg', 0.8); // Compress as JPEG
-
-            try {
-                const response = await fetch('/api/scan/add/{{ session_id }}', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        image: croppedImage
-                    })
-                });
-
-                const result = await response.json();
-                if (result.finished) {
-                    scanning = false;
-                    video.pause();
-                    finalImage.src = result.transformed_image;
-                    finalImage.style.display = 'block';
-                    showAcceptCancel();
-                }
-            } catch (error) {
-                console.error('Error sending image to server:', error);
-            } finally {
-                isProcessing = false;
-            }
+      // This function is called repeatedly to capture frames and send them for scanning.
+      async function autoCaptureLoop() {
+        document.getElementById('status-msg').innerText = "Scanning...";
+        const imageDataUrl = captureFrame();
+        const result = await sendScanImage(imageDataUrl);
+        console.log("Scan result:", result);
+        if (result && result.finished) {
+          // Stop auto-capture when the scan is “finished”
+          clearInterval(autoCaptureInterval);
+          // Show a preview of the captured image.
+          const previewImg = document.getElementById('preview');
+          previewImg.src = imageDataUrl;
+          previewImg.style.display = 'block';
+          // Show confirm and restart buttons.
+          document.getElementById('confirm-btn').style.display = 'inline-block';
+          document.getElementById('restart-btn').style.display = 'inline-block';
+          document.getElementById('status-msg').innerText = "Scan complete. Please confirm or restart.";
+          // Save the image based on the current step.
+          if (currentStep === 'doc_front') {
+            capturedDocFront = imageDataUrl;
+          } else if (currentStep === 'doc_back') {
+            capturedDocBack = imageDataUrl;
+          }
+        } else if (result) {
+          document.getElementById('status-msg').innerText = `Scanning... Consistent frames: ${result.test || 0}`;
         }
+      }
 
-        function showAcceptCancel() {
-            const accept = confirm('Accept the processed image?');
-            if (accept) {
-                alert('Image accepted!');
-            } else {
-                alert('Image rejected!');
-                finalImage.style.display = 'none';
-            }
+      // Start the auto-capture loop (e.g. capture a frame every second).
+      async function startAutoCapture() {
+        if (autoCaptureInterval) {
+          clearInterval(autoCaptureInterval);
         }
+        autoCaptureInterval = setInterval(autoCaptureLoop, 1000);
+      }
 
-        startBtn.addEventListener('click', () => {
-            scanning = true;
-            startBtn.style.display = 'none';
-            startVideo();
+      // Initialize the document scanning step.
+      async function initDocScan(step) {
+        currentStep = step;
+        // Use the back camera.
+        await startCamera('environment');
+        document.getElementById('step-title').innerText =
+          step === 'doc_front' ? "Scan Document - Side 1" : "Scan Document - Side 2";
+        // Hide buttons and preview image.
+        document.getElementById('capture-btn').style.display = 'none';
+        document.getElementById('confirm-btn').style.display = 'none';
+        document.getElementById('restart-btn').style.display = 'none';
+        document.getElementById('preview').style.display = 'none';
+        // Start the automatic frame capture.
+        startAutoCapture();
+      }
 
-            setInterval(() => {
-                if (scanning) {
-                    cropAndSend();
-                }
-            }, 1000); // Capture every second
-        });
+      // Initialize the face (selfie) capture step.
+      async function initFaceCapture() {
+        currentStep = 'face';
+        // Stop any auto-capture.
+        if (autoCaptureInterval) {
+          clearInterval(autoCaptureInterval);
+        }
+        // Switch to the front camera.
+        await startCamera('user');
+        document.getElementById('step-title').innerText = "Capture Selfie";
+        // Show the capture button.
+        document.getElementById('capture-btn').style.display = 'inline-block';
+        document.getElementById('confirm-btn').style.display = 'none';
+        document.getElementById('restart-btn').style.display = 'none';
+        document.getElementById('preview').style.display = 'none';
+        document.getElementById('status-msg').innerText = "Press 'Capture' to take a selfie.";
+      }
+
+      // Once all images are captured, prepare a form and send them to the confirmation endpoint.
+      async function finalizeVerification() {
+        // Convert dataURL to Blob
+        function dataURLtoBlob(dataurl) {
+          const arr = dataurl.split(','),
+                mime = arr[0].match(/:(.*?);/)[1],
+                bstr = atob(arr[1]), 
+                n = bstr.length, 
+                u8arr = new Uint8Array(n);
+          while (n--) {
+            u8arr[n] = bstr.charCodeAt(n);
+          }
+          return new Blob([u8arr], { type: mime });
+        }
+        if (!capturedDocFront || !capturedDocBack || !capturedFace) {
+          alert("Missing captured images.");
+          return;
+        }
+        const formData = new FormData();
+        // The confirm endpoint expects three files:
+        formData.append('front_image', dataURLtoBlob(capturedDocFront), 'doc_front.jpg');
+        formData.append('back_image', dataURLtoBlob(capturedDocBack), 'doc_back.jpg');
+        formData.append('face_image', dataURLtoBlob(capturedFace), 'face.jpg');
+
+        try {
+          const response = await fetch(`/api/scan/confirm/${sessionId}`, {
+            method: 'POST',
+            body: formData
+          });
+          const result = await response.json();
+          console.log("Confirmation result:", result);
+          document.getElementById('status-msg').innerText = "Verification completed.";
+          // Optionally, you could display the transformed images returned from the server.
+        } catch (err) {
+          console.error("Error finalizing verification:", err);
+        }
+      }
+
+      // When the page loads, check if the user is on mobile.
+      document.addEventListener('DOMContentLoaded', async function() {
+        if (!isMobile()) {
+          document.getElementById('not-mobile-warning').style.display = 'block';
+          return;
+        }
+        document.getElementById('scanning-interface').style.display = 'block';
+        // Start with the first document side scan.
+        await initDocScan('doc_front');
+      });
+
+      // When the user clicks "Confirm" after a document scan.
+      document.getElementById('confirm-btn').addEventListener('click', async function() {
+        // For document scans, confirm and move to the next step.
+        if (currentStep === 'doc_front') {
+          clearInterval(autoCaptureInterval);
+          await initDocScan('doc_back');
+        } else if (currentStep === 'doc_back') {
+          clearInterval(autoCaptureInterval);
+          await initFaceCapture();
+        }
+      });
+
+      // When the user clicks "Restart Scan" during document scanning.
+      document.getElementById('restart-btn').addEventListener('click', async function() {
+        try {
+          await fetch(`/api/scan/restart/${sessionId}`, { method: 'POST' });
+          if (currentStep === 'doc_front') {
+            await initDocScan('doc_front');
+          } else if (currentStep === 'doc_back') {
+            await initDocScan('doc_back');
+          }
+        } catch (err) {
+          console.error("Error restarting scan:", err);
+        }
+      });
+
+      // For selfie capture, use the "Capture" button.
+      document.getElementById('capture-btn').addEventListener('click', function() {
+        if (currentStep === 'face') {
+          capturedFace = captureFrame();
+          const previewImg = document.getElementById('preview');
+          previewImg.src = capturedFace;
+          previewImg.style.display = 'block';
+          document.getElementById('capture-btn').style.display = 'none';
+          // Finalize the verification by sending all three images.
+          finalizeVerification();
+        }
+      });
     </script>
-</body>
+  </body>
 </html>

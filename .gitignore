@@ -2,3 +2,4 @@
 *secret*
 flask_session
 __pycache__
+*.pb

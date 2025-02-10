@@ -10,3 +10,10 @@ requests
 cryptography
 readmrz
 pyopenssl
+tensorflow
+scipy
+scikit-learn
+h5py
+matplotlib
+Pillow
+psutil

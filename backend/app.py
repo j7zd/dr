@@ -9,6 +9,7 @@ from sqlalchemy import BigInteger
 import random
 import requests
 from processing import extract_picture_bg_2024, read_mrz_bg_2024
+from face_comp import compare_images
 
 # MySQL configuration
 MYSQL_HOST = os.environ.get('MYSQL_HOST', 'localhost')
@@ -190,7 +191,7 @@ def confirm_scan(session_id):
     # temporary
     picture_card = extract_picture_bg_2024(front_transformed_image)
     mrz_data = read_mrz_bg_2024(back_transformed_image)
-    cv2.imwrite('face.jpg', face_image)
+    l2_distance = compare_images(face_image, picture_card)
     # Has to process the image.
 
     callback_url = session.callback_url
