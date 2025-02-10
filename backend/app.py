@@ -195,7 +195,10 @@ def confirm_scan(session_id):
     # Has to process the image.
 
     callback_url = session.callback_url
-    response = requests.post(callback_url, json={'status': 'ACCEPTED'}) # to be changed
+    if l2_distance > 0.4:
+        response = requests.post(callback_url, json={'status': 'DENIED'})
+    else:
+        response = requests.post(callback_url, json={'status': 'ACCEPTED'})
 
     return {
         'front_transformed_image': base64.b64encode(cv2.imencode('.jpg', front_transformed_image)[1].tobytes()).decode('utf-8'),
